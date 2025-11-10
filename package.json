@@ -1,0 +1,23 @@
+{
+  "name": "poll-backend",
+  "version": "1.0.0",
+  "description": "Echtzeit-Umfrage-Backend mit WebSocket und einfachem Poll-Management per URL",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.1",
+    "ws": "^8.18.0",
+    "uuid": "^9.0.1",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
