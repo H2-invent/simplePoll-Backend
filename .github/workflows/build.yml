@@ -56,5 +56,5 @@ jobs:
         with:
           push: true
           tags: |
-            reg.h2-invent.com/meetling/simplePoll-Backend:${{ needs.release.outputs.version }},
-            reg.h2-invent.com/meetling/simplePoll-Backend:latest
+            reg.h2-invent.com/meetling/simplepoll-backend:${{ needs.release.outputs.version }},
+            reg.h2-invent.com/meetling/simplepoll-backend:latest
