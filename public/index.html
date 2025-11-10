@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<title>Live Poll</title>
+<style>
+  body { font-family: sans-serif; max-width: 600px; margin: 2em auto; }
+  input, textarea, button { margin: 0.3em 0; padding: 0.5em; width: 100%; box-sizing:border-box; }
+  button { cursor: pointer; }
+  .option { display:block; margin:0.2em 0; }
+</style>
+</head>
+<body>
+
+<h1>Live-Umfrage</h1>
+
+<!-- Erstellungsphase -->
+<div id="setup">
+  <input id="question" placeholder="Frage eingeben" />
+  <textarea id="options" placeholder="Antworten (je Zeile eine)"></textarea>
+  <button id="createPoll">Umfrage erstellen</button>
+</div>
+
+<!-- Umfrage / Abstimmung -->
+<div id="voting" style="display:none">
+  <h2 id="voteQuestion"></h2>
+  <div id="voteOptions"></div>
+  <h3 id="voteResults"></h3>
+  <button id="startPoll" style="display:none;">▶️ Umfrage starten</button>
+  <button id="newPollBtn" style="display:none;">🔄 Neue Umfrage</button>
+</div>
+
+<script>
+  // Poll-ID aus URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const pollId = urlParams.get('poll') || 'default';
+
+  const ws = new WebSocket(`ws://${location.host}?poll=${pollId}`);
+
+  let state = null;
+
+  const setup = document.getElementById('setup');
+  const voting = document.getElementById('voting');
+  const voteResults = document.getElementById('voteResults');
+  const newPollBtn = document.getElementById('newPollBtn');
+  const startPollBtn = document.getElementById('startPoll');
+  const voteOptions = document.getElementById('voteOptions');
+  const questionEl = document.getElementById('voteQuestion');
+
+  // Buttons
+  document.getElementById('createPoll').onclick = () => {
+    const q = document.getElementById('question').value.trim();
+    const opts = document.getElementById('options').value.split('\n').map(o=>o.trim()).filter(Boolean);
+    if(!q || opts.length < 2) return alert('Frage + mindestens 2 Antworten erforderlich');
+    ws.send(JSON.stringify({action:'create', question:q, options:opts}));
+  };
+
+  newPollBtn.onclick = ()=>ws.send(JSON.stringify({action:'reset'}));
+  startPollBtn.onclick = ()=>ws.send(JSON.stringify({action:'start'}));
+
+  ws.onmessage = (msg) => {
+    const data = JSON.parse(msg.data);
+    updateUI(data);
+
+    // Wenn dieser Client abgestimmt hat → Buttons ausblenden
+    if(data.yourVoteDone){
+      voteOptions.style.display = 'none';
+      newPollBtn.style.display = 'inline-block';
+    }
+  };
+
+  function updateUI(data){
+    state = data;
+
+    setup.style.display = data.state === 'editing' ? 'block' : 'none';
+    voting.style.display = (data.state === 'created' || data.state === 'started') ? 'block' : 'none';
+
+    // Umfrage erstellt (noch nicht gestartet)
+    if(data.state === 'created'){
+      questionEl.textContent = data.question;
+      voteOptions.innerHTML = data.options.map(o=>`<div>${o}</div>`).join('');
+      startPollBtn.style.display = 'inline-block';
+      newPollBtn.style.display = 'none';
+      voteResults.innerHTML = '';
+    }
+
+    // Umfrage gestartet
+    if(data.state === 'started'){
+      questionEl.textContent = data.question;
+      startPollBtn.style.display = 'none';
+      renderVoteButtons(data);
+      showVoteResults(data);
+    }
+  }
+
+  function renderVoteButtons(data){
+    voteOptions.innerHTML = '';
+    voteOptions.style.display = 'block';
+
+    // Hat der Client schon abgestimmt?
+    if(data.votedClients && data.votedClients[ws.clientId]){
+      voteOptions.style.display = 'none';
+      return;
+    }
+
+    data.options.forEach((opt,i)=>{
+      const btn = document.createElement('button');
+      btn.textContent = opt;
+      btn.onclick = ()=>ws.send(JSON.stringify({action:'vote', index:i}));
+      voteOptions.appendChild(btn);
+    });
+  }
+
+  function showVoteResults(data){
+    const total = data.votes.reduce((a,b)=>a+b,0);
+    voteResults.innerHTML = data.options.map((o,i)=>{
+      const pct = total? Math.round(data.votes[i]/total*100):0;
+      return `<div>${o}: ${data.votes[i]} (${pct}%)</div>`;
+    }).join('');
+  }
+</script>
+</body>
+</html>

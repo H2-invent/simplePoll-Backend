@@ -6,90 +6,79 @@ const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 app.use(cors());
-app.use(express.static("public")); // Frontend wird hiermit serviert
+app.use(express.static("public"));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Poll-Status
-let poll = {
-  state: "editing",      // editing | created | started
-  question: "",
-  options: [],
-  votes: [],             // Anzahl Stimmen pro Option
-  votedClients: {},      // { clientId: true }
-};
+// pollId -> pollData
+const polls = {};
 
-wss.on("connection", (ws) => {
-  // Jeder Client bekommt eine eindeutige ID
-  const clientId = uuidv4();
-  ws.clientId = clientId;
+// Verbindung
+wss.on("connection", (ws, req) => {
+  // PollID aus der URL ?poll=abc extrahieren
+  const urlParams = new URLSearchParams(req.url.replace(/^.*\?/, ''));
+  const pollId = urlParams.get('poll') || uuidv4();
+  ws.pollId = pollId;
+  ws.clientId = uuidv4();
 
-  // Initialen Poll-Zustand senden
-  ws.send(JSON.stringify(poll));
+  // Wenn Poll nicht existiert, initialisieren
+  if(!polls[pollId]){
+    polls[pollId] = {
+      state: "editing",
+      question: "",
+      options: [],
+      votes: [],
+      votedClients: {}
+    };
+  }
 
-  ws.on("message", (msg) => {
-    try {
-      const data = JSON.parse(msg);
+  // Initialzustand senden
+  ws.send(JSON.stringify(polls[pollId]));
 
-      switch (data.action) {
-        case "create":
-          // Neue Umfrage erstellen
-          poll = {
-            state: "created",
-            question: data.question,
-            options: data.options,
-            votes: new Array(data.options.length).fill(0),
-            votedClients: {},
-          };
-          break;
+  ws.on("message", msg => {
+    const data = JSON.parse(msg);
+    const poll = polls[ws.pollId];
 
-        case "start":
-          if (poll.state === "created") poll.state = "started";
-          break;
-
-        case "vote":
-          if (poll.state === "started") {
-            // Prüfen, ob dieser Client schon abgestimmt hat
-            if (!poll.votedClients[ws.clientId]) {
-              poll.votes[data.index]++;
-              poll.votedClients[ws.clientId] = true;
-
-              // Feedback nur an diesen Client, dass er abgestimmt hat
-              ws.send(JSON.stringify({ ...poll, yourVoteDone: true }));
-            }
-          }
-          break;
-
-        case "reset":
-          poll = {
-            state: "editing",
-            question: "",
-            options: [],
-            votes: [],
-            votedClients: {},
-          };
-          break;
-      }
-
-      // Poll an alle Clients broadcasten
-      broadcast(poll);
-    } catch (err) {
-      console.error("Fehler:", err);
+    switch(data.action){
+      case "create":
+        poll.state = "created";
+        poll.question = data.question;
+        poll.options = data.options;
+        poll.votes = new Array(data.options.length).fill(0);
+        poll.votedClients = {};
+        break;
+      case "start":
+        if(poll.state === "created") poll.state = "started";
+        break;
+      case "vote":
+        if(poll.state === "started" && !poll.votedClients[ws.clientId]){
+          poll.votes[data.index]++;
+          poll.votedClients[ws.clientId] = true;
+          // Feedback nur an diesen Client
+          ws.send(JSON.stringify({...poll, yourVoteDone:true}));
+        }
+        break;
+      case "reset":
+        polls[ws.pollId] = {
+          state: "editing",
+          question: "",
+          options: [],
+          votes: [],
+          votedClients: {}
+        };
+        break;
     }
-  });
 
-  ws.on("close", () => console.log("Client disconnected"));
+    broadcast(ws.pollId);
+  });
 });
 
-// Broadcast-Funktion
-function broadcast(data) {
-  const msg = JSON.stringify(data);
-  wss.clients.forEach((client) => {
-    if (client.readyState === 1) client.send(msg);
+function broadcast(pollId){
+  const msg = JSON.stringify(polls[pollId]);
+  wss.clients.forEach(client => {
+    if(client.readyState===1 && client.pollId===pollId) client.send(msg);
   });
 }
 
-// Server starten
 server.listen(3000, "0.0.0.0", () => console.log("Server läuft auf Port 3000"));
- 
